@@ -8,21 +8,22 @@ jobs:
     steps:
       - name: Inspect the port
         run: |
+          set +e
           {
             git clone --depth 1 https://github.com/KaikoClanworth1/wwe-svr2011-pc port-src
             cd port-src
             echo "=== top-level ==="; ls -la
-            echo "=== branches / log ==="; git branch -a; git log --oneline | head
-            echo "=== CI workflows ==="; ls -la .github/workflows 2>/dev/null
-            for w in .github/workflows/*; do echo "=== $w ==="; head -300 "$w"; done 2>/dev/null
-            echo "=== tree (port/) ==="; find port -maxdepth 3 -not -path '*/.git/*' | sort | head -300
-            echo "=== patches / docs ==="; ls -la port/patches docs 2>/dev/null
-            for f in port/CMakeLists.txt port/build.ps1 port/svr2011_manifest.toml port/svr2011_config.toml; do
-              echo "=== $f ==="; head -400 "$f" 2>/dev/null
+            echo "=== docs ==="; ls -laR docs | head -80
+            echo "=== tree (port/) ==="; find port -maxdepth 3 -not -path '*/.git/*' | sort | head -400
+            echo "=== patches ==="; ls -la port/patches
+            for f in port/CMakeLists.txt port/build.ps1 port/svr2011_manifest.toml; do
+              echo "=== $f ==="; head -400 "$f"
             done
-            echo "=== files mentioning android/ios/linux/SDL ==="
-            grep -rIl -iE "android|ios|SDL_main|__linux__" port 2>/dev/null | head -60
-          } 2>&1 | tee inspect.log
+            echo "=== files mentioning android / ios / SDL_main / __linux__ ==="
+            grep -rIl -iE "android|ios|SDL_main|__linux__" port | head -80
+            echo "=== README: lines mentioning android/linux/ios ==="
+            grep -n -iE "android|linux|ios|apk|sdl|vulkan|moltenvk" README.md | head -80
+          } 2>&1 | tee ../inspect.log
 
       - uses: actions/upload-artifact@v4
         with:
