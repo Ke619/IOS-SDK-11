@@ -41,14 +41,16 @@ jobs:
       - name: Patch MoltenVK CMake for iOS (skip AppKit)
         run: |
           F=sdk/thirdparty/moltenvk/Common/CMakeLists.txt
-          echo "---- before ----"; sed -n 1,40p "$F"
           perl -i -pe 's/^(\s*find_library\(APPKIT_LIBRARY.*)$/if(NOT IOS)\n$1\nendif()/' "$F"
-          echo "---- after ----"; sed -n 1,40p "$F"
-          echo "---- other AppKit refs ----"
           grep -rn "AppKit\|APPKIT" sdk/thirdparty/moltenvk --include=CMakeLists.txt --include=*.cmake || true
 
-      - name: Show install rules (debug)
-        run: sed -n 35,75p sdk/cmake/rexglue_install.cmake
+      - name: Patch threading_posix.cpp for iOS (pthread_gettid_np is Android-only)
+        run: |
+          F=sdk/src/core/threading_posix.cpp
+          echo "---- before ----"; sed -n 1060,1085p "$F"
+          perl -i -pe 's/return pthread_gettid_np\(thread_\);/return [&]{ uint64_t t__ = 0; pthread_threadid_np(thread_, &t__); return static_cast<pid_t>(t__); }();/' "$F"
+          echo "---- after ----"; sed -n 1060,1085p "$F"
+          echo "---- SYS_gettid uses ----"; grep -n "SYS_gettid\|gettid" "$F" || true
 
       - name: Configure (iOS arm64)
         run: |
@@ -57,7 +59,7 @@ jobs:
             -DCMAKE_OSX_SYSROOT=iphoneos \
             -DCMAKE_OSX_ARCHITECTURES=arm64 \
             -DCMAKE_SYSTEM_PROCESSOR=arm64 \
-            -DCMAKE_OSX_DEPLOYMENT_TARGET=16.0 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=17.0 \
             -DCMAKE_MACOSX_BUNDLE=OFF \
             -DCMAKE_BUILD_TYPE=Release \
             -DREXGLUE_USE_VULKAN=${{ matrix.vulkan }} \
@@ -76,7 +78,7 @@ jobs:
           {
             echo "### vulkan=${{ matrix.vulkan }}"
             echo '```'
-            grep -hE "error:|CMake Error|FAILED:|fatal error" configure.log build.log 2>/dev/null | sort -u | head -60 || true
+            grep -hE "error:|CMake Error|FAILED:|fatal error" configure.log build.log 2>/dev/null | sed -E 's#/Users/runner/work/[^/]+/[^/]+/##' | sort -u | head -60 || true
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
