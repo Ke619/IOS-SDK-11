@@ -1,0 +1,73 @@
+name: ios-sdk
+# Step 1: does the ReXGlue SDK runtime compile for iOS arm64? (no game files needed)
+on:
+  workflow_dispatch: {}
+  push:
+    paths: ['patches/**', '.github/workflows/ios-sdk.yml']
+
+jobs:
+  sdk:
+    runs-on: macos-15
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        vulkan: ['OFF', 'ON']
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tools
+        run: brew install ninja || true
+
+      - name: Fetch ReXGlue SDK (pinned to the commit the port was built against)
+        run: |
+          git clone https://github.com/rexglue/rexglue-sdk sdk
+          git -C sdk checkout c94f5ebdcb3c9d1a460ca48e04f9758448f8d518
+          git -C sdk submodule update --init --recursive --jobs 8
+
+      - name: Fetch the port (for its SDK patch)
+        run: git clone --depth 1 https://github.com/KaikoClanworth1/wwe-svr2011-pc port-src
+
+      - name: Apply patches
+        run: |
+          git -C sdk apply --whitespace=nowarn ../port-src/port/patches/rexglue-sdk-svr2011.patch
+          for p in patches/*.patch; do echo "applying $p"; git -C sdk apply --whitespace=nowarn "../$p"; done
+
+      - name: Configure (iOS arm64)
+        run: |
+          cmake -S sdk -B build -G Ninja \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT=iphoneos \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=16.0 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DREXGLUE_USE_VULKAN=${{ matrix.vulkan }} \
+            -DREXGLUE_ENABLE_TRACY=OFF \
+            2>&1 | tee configure.log
+
+      - name: Build (keep going, so one run shows every error)
+        run: |
+          TARGETS="rexruntime"
+          if [ "${{ matrix.vulkan }}" = "ON" ]; then TARGETS="rexruntime rexgpu-xenos"; fi
+          cmake --build build --target $TARGETS -- -k 0 2>&1 | tee build.log
+
+      - name: Error summary
+        if: always()
+        run: |
+          {
+            echo "### vulkan=${{ matrix.vulkan }}"
+            echo '```'
+            grep -hE "error:|CMake Error|FAILED:|fatal error" configure.log build.log 2>/dev/null | sort -u | head -60 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: logs-vulkan-${{ matrix.vulkan }}
+          path: |
+            configure.log
+            build.log

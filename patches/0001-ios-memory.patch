@@ -1,0 +1,119 @@
+diff --git a/src/core/memory_posix.cpp b/src/core/memory_posix.cpp
+index 72fa4e3..3b33053 100644
+--- a/src/core/memory_posix.cpp
++++ b/src/core/memory_posix.cpp
+@@ -12,6 +12,7 @@
+ #include <cerrno>
+ #include <cstddef>
+ #include <cstdio>
++#include <cstdlib>
+ #include <cstring>
+ #include <fstream>
+ #include <functional>
+@@ -20,9 +21,22 @@
+ #include <fcntl.h>
+ 
+ #if REX_PLATFORM_MAC
++#include <TargetConditionals.h>
+ #include <mach/mach.h>
++#if TARGET_OS_IPHONE
++// iOS: mach_vm.h is unavailable. vm_region_64 has the same shape on 64-bit.
++#include <mach/vm_map.h>
++#include <mach/vm_region.h>
++using rex_vm_addr_t = vm_address_t;
++using rex_vm_size_t = vm_size_t;
++#define rex_vm_region vm_region_64
++#else
+ #include <mach/mach_vm.h>
+ #include <mach/vm_region.h>
++using rex_vm_addr_t = mach_vm_address_t;
++using rex_vm_size_t = mach_vm_size_t;
++#define rex_vm_region mach_vm_region
++#endif
+ #endif  // REX_PLATFORM_MAC
+ 
+ #include <sys/mman.h>
+@@ -281,9 +295,11 @@ void* AllocFixed(void* base_address, size_t length, AllocationType allocation_ty
+ 
+   int flags = MAP_PRIVATE | MAP_ANONYMOUS;
+ #if REX_PLATFORM_MAC
++#if !TARGET_OS_IPHONE
+   if (access == PageAccess::kExecuteReadWrite || access == PageAccess::kExecuteReadOnly) {
+     flags |= MAP_JIT;
+   }
++#endif
+   if (base_address) {
+     flags |= MAP_FIXED;
+   }
+@@ -388,24 +404,24 @@ bool Protect(void* base_address, size_t length, PageAccess access, PageAccess* o
+ 
+ bool QueryProtect(void* base_address, size_t& length, PageAccess& access_out) {
+ #if REX_PLATFORM_MAC
+-  mach_vm_address_t address = reinterpret_cast<mach_vm_address_t>(base_address);
+-  mach_vm_size_t region_size = 0;
++  rex_vm_addr_t address = reinterpret_cast<rex_vm_addr_t>(base_address);
++  rex_vm_size_t region_size = 0;
+   vm_region_basic_info_data_64_t info;
+   mach_msg_type_number_t info_count = VM_REGION_BASIC_INFO_COUNT_64;
+   mach_port_t object_name;
+ 
+   kern_return_t kr =
+-      mach_vm_region(mach_task_self(), &address, &region_size, VM_REGION_BASIC_INFO_64,
++      rex_vm_region(mach_task_self(), &address, &region_size, VM_REGION_BASIC_INFO_64,
+                      reinterpret_cast<vm_region_info_t>(&info), &info_count, &object_name);
+   if (kr != KERN_SUCCESS) {
+     return false;
+   }
+-  if (address > reinterpret_cast<mach_vm_address_t>(base_address)) {
++  if (address > reinterpret_cast<rex_vm_addr_t>(base_address)) {
+     return false;
+   }
+ 
+   length = static_cast<size_t>((address + region_size) -
+-                               reinterpret_cast<mach_vm_address_t>(base_address));
++                               reinterpret_cast<rex_vm_addr_t>(base_address));
+ 
+   if ((info.protection & (VM_PROT_READ | VM_PROT_WRITE | VM_PROT_EXECUTE)) ==
+       (VM_PROT_READ | VM_PROT_WRITE | VM_PROT_EXECUTE)) {
+@@ -487,13 +503,32 @@ FileMappingHandle CreateFileMappingHandle(const std::filesystem::path& path, siz
+   }
+   oflag |= O_CREAT;
+   auto full_path = MakeShmName(path);
++#if TARGET_OS_IPHONE
++  // iOS sandbox denies shm_open (EPERM). An unlinked file in the app's temp
++  // directory gives the same thing: an fd that can be mapped MAP_SHARED at
++  // several addresses with coherent aliasing (verified on device).
++  (void)oflag;
++  const char* tmpdir = getenv("TMPDIR");
++  std::string tmp_path = tmpdir ? tmpdir : "/tmp";
++  if (tmp_path.empty() || tmp_path.back() != '/') {
++    tmp_path += '/';
++  }
++  tmp_path += "rexmem" + full_path.substr(1);  // MakeShmName starts with '/'
++  int ret = open(tmp_path.c_str(), O_RDWR | O_CREAT | O_TRUNC, 0600);
++  if (ret >= 0) {
++    unlink(tmp_path.c_str());
++  }
++#else
+   int ret = shm_open(full_path.c_str(), oflag, 0777);
++#endif
+   if (ret < 0) {
+     return kFileMappingHandleInvalid;
+   }
+   if (rex_ftruncate64(ret, static_cast<off_t>(length)) != 0) {
+     close(ret);
++#if !TARGET_OS_IPHONE
+     shm_unlink(full_path.c_str());
++#endif
+     return kFileMappingHandleInvalid;
+   }
+   return static_cast<FileMappingHandle>(ret);
+@@ -502,7 +537,7 @@ FileMappingHandle CreateFileMappingHandle(const std::filesystem::path& path, siz
+ 
+ void CloseFileMappingHandle(FileMappingHandle handle, const std::filesystem::path& path) {
+   close(static_cast<int>(handle));
+-#if !REX_PLATFORM_ANDROID
++#if !REX_PLATFORM_ANDROID && !TARGET_OS_IPHONE
+   auto full_path = MakeShmName(path);
+   shm_unlink(full_path.c_str());
+ #endif
