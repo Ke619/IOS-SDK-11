@@ -23,12 +23,13 @@ jobs:
           git -C plume apply --whitespace=nowarn ../port-src/port/patches/plume-svr2011.patch
           git -C plume status --short | head -30
 
-      - name: Look at plume's build options
+      - name: Patch plume CMake for iOS (no Metal backend, Vulkan only)
         run: |
-          set +e
-          echo "=== top-level files ==="; ls -la plume
-          echo "=== CMakeLists (first 120 lines) ==="; sed -n 1,120p plume/CMakeLists.txt
-          echo "=== options ==="; grep -n "option(\|add_library\|target_link" plume/CMakeLists.txt | head -60
+          F=plume/CMakeLists.txt
+          perl -0pi -e 's/if\(APPLE\)\n(\s+list\(APPEND PLUME_SOURCES\n\s+plume_metal\.cpp)/if(APPLE AND NOT IOS)\n$1/' "$F"
+          echo "---- source list after patch ----"; sed -n 52,75p "$F"
+          echo "---- how much the Vulkan backend depends on Apple/Metal code ----"
+          grep -n "APPLE\|plume_apple\|plume_metal\|Metal\|MoltenVK\|portability" plume/plume_vulkan.cpp plume/plume_vulkan.h | head -40 || true
 
       - name: Configure (iOS arm64)
         run: |
@@ -47,8 +48,6 @@ jobs:
         run: |
           set +e
           cmake --build build --target plume -- -k 0 2>&1 | tee build.log
-          echo "=== targets available ===" >> build.log
-          cmake --build build --target help 2>&1 | head -60 >> build.log
 
       - name: Collect libraries
         if: always()
