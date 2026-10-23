@@ -46,9 +46,7 @@ jobs:
       - name: Patch threading_posix.cpp for iOS (pthread_gettid_np is Android-only)
         run: |
           F=sdk/src/core/threading_posix.cpp
-          echo "---- before ----"; sed -n 1060,1085p "$F"
           perl -i -pe 's/return pthread_gettid_np\(thread_\);/return [&]{ uint64_t t__ = 0; pthread_threadid_np(thread_, &t__); return static_cast<pid_t>(t__); }();/' "$F"
-          echo "---- after ----"; sed -n 1060,1085p "$F"
 
       - name: Configure (iOS arm64)
         run: |
@@ -60,6 +58,8 @@ jobs:
             -DCMAKE_OSX_DEPLOYMENT_TARGET=17.0 \
             -DCMAKE_MACOSX_BUNDLE=OFF \
             -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_SHARED_LINKER_FLAGS="-framework UIKit -framework CoreGraphics" \
+            -DCMAKE_EXE_LINKER_FLAGS="-framework UIKit -framework CoreGraphics" \
             -DREXGLUE_USE_VULKAN=${{ matrix.vulkan }} \
             -DREXGLUE_ENABLE_TRACY=OFF \
             2>&1 | tee configure.log
@@ -71,7 +71,7 @@ jobs:
         if: always()
         run: |
           mkdir -p out-libs
-          find build -name "*.a" -exec cp {} out-libs/ \; || true
+          find sdk/out build -name "*.a" -o -name "*.dylib" | while read f; do cp "$f" out-libs/ 2>/dev/null || true; done
           ls -la out-libs
 
       - name: Error summary
@@ -80,7 +80,7 @@ jobs:
           {
             echo "### vulkan=${{ matrix.vulkan }}"
             echo '```'
-            grep -hE "error:|CMake Error|FAILED:|fatal error" configure.log build.log 2>/dev/null | sed -E 's#/Users/runner/work/[^/]+/[^/]+/##' | sort -u | head -60 || true
+            grep -hE "error:|CMake Error|FAILED:|fatal error|Undefined symbols" configure.log build.log 2>/dev/null | sed -E 's#/Users/runner/work/[^/]+/[^/]+/##' | sort -u | head -60 || true
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
