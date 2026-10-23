@@ -1,0 +1,38 @@
+name: inspect-port-2
+on:
+  workflow_dispatch: {}
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Inspect key port sources
+        run: |
+          set +e
+          {
+            git clone --depth 1 https://github.com/KaikoClanworth1/wwe-svr2011-pc port-src
+            cd port-src/port
+            show() { echo; echo "=================== $1 ($(wc -l < "$1" 2>/dev/null) lines) ==================="; head -n "${2:-250}" "$1" 2>/dev/null; }
+
+            show launcher/game_files_crc.inc 30
+            show src/main.cpp 250
+            show src/platform.cpp 200
+            show src/posix_stubs.cpp 250
+            show src/compat.h 120
+            show src/native/backend_vulkan.cpp 300
+            show src/touch_controls.cpp 150
+            show src/music.cpp 120
+            show src/crash_report_posix.cpp 80
+            show docs/native_renderer_phase2.md 150
+            show tools/build_apk.py 200
+            show android/java/io/github/kaikoclanworth1/svr2011/GameActivity.java 200
+            show assets/README.md 60
+
+            echo; echo "=================== Android-specific code per source file ==================="
+            grep -c -iE "__ANDROID__|ANDROID" src/*.cpp src/native/*.cpp src/*.h 2>/dev/null | grep -v ":0$" | sort -t: -k2 -nr | head -60
+          } 2>&1 | tee inspect.log
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: inspect-log-2
+          path: inspect.log
