@@ -1,0 +1,82 @@
+name: plume-ios
+# Does plume (the port's graphics layer) compile for iOS arm64? No game files needed.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  plume:
+    runs-on: macos-15
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Tools
+        run: brew install ninja || true
+
+      - name: Fetch plume (pinned) and apply the port's patch
+        run: |
+          git clone https://github.com/renderbag/plume plume
+          git -C plume checkout d723793
+          git -C plume submodule update --init --recursive --jobs 8
+          git clone --depth 1 https://github.com/KaikoClanworth1/wwe-svr2011-pc port-src
+          git -C plume apply --whitespace=nowarn ../port-src/port/patches/plume-svr2011.patch
+          git -C plume status --short | head -30
+
+      - name: Look at plume's build options
+        run: |
+          set +e
+          echo "=== top-level files ==="; ls -la plume
+          echo "=== CMakeLists (first 120 lines) ==="; sed -n 1,120p plume/CMakeLists.txt
+          echo "=== options ==="; grep -n "option(\|add_library\|target_link" plume/CMakeLists.txt | head -60
+
+      - name: Configure (iOS arm64)
+        run: |
+          set +e
+          cmake -S plume -B build -G Ninja \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT=iphoneos \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=17.0 \
+            -DCMAKE_MACOSX_BUNDLE=OFF \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+            2>&1 | tee configure.log
+
+      - name: Build plume (keep going, so one run shows every error)
+        run: |
+          set +e
+          cmake --build build --target plume -- -k 0 2>&1 | tee build.log
+          echo "=== targets available ===" >> build.log
+          cmake --build build --target help 2>&1 | head -60 >> build.log
+
+      - name: Collect libraries
+        if: always()
+        run: |
+          mkdir -p out-libs
+          find build -name "*.a" -o -name "*.dylib" | while read f; do cp "$f" out-libs/ 2>/dev/null || true; done
+          ls -la out-libs
+
+      - name: Error summary
+        if: always()
+        run: |
+          {
+            echo "### plume on iOS"
+            echo '```'
+            grep -hE "error:|CMake Error|FAILED:|fatal error|Undefined symbols" configure.log build.log 2>/dev/null | sort -u | head -60 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: plume-logs
+          path: |
+            configure.log
+            build.log
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: plume-libs
+          path: out-libs
