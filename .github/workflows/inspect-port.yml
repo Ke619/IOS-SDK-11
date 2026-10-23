@@ -23,7 +23,7 @@ jobs:
             grep -rIl -iE "android|ios|SDL_main|__linux__" port | head -80
             echo "=== README: lines mentioning android/linux/ios ==="
             grep -n -iE "android|linux|ios|apk|sdl|vulkan|moltenvk" README.md | head -80
-          } 2>&1 | tee ../inspect.log
+          } 2>&1 | tee inspect.log
 
       - uses: actions/upload-artifact@v4
         with:
