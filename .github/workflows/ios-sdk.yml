@@ -42,7 +42,6 @@ jobs:
         run: |
           F=sdk/thirdparty/moltenvk/Common/CMakeLists.txt
           perl -i -pe 's/^(\s*find_library\(APPKIT_LIBRARY.*)$/if(NOT IOS)\n$1\nendif()/' "$F"
-          grep -rn "AppKit\|APPKIT" sdk/thirdparty/moltenvk --include=CMakeLists.txt --include=*.cmake || true
 
       - name: Patch threading_posix.cpp for iOS (pthread_gettid_np is Android-only)
         run: |
@@ -50,7 +49,6 @@ jobs:
           echo "---- before ----"; sed -n 1060,1085p "$F"
           perl -i -pe 's/return pthread_gettid_np\(thread_\);/return [&]{ uint64_t t__ = 0; pthread_threadid_np(thread_, &t__); return static_cast<pid_t>(t__); }();/' "$F"
           echo "---- after ----"; sed -n 1060,1085p "$F"
-          echo "---- SYS_gettid uses ----"; grep -n "SYS_gettid\|gettid" "$F" || true
 
       - name: Configure (iOS arm64)
         run: |
@@ -66,11 +64,15 @@ jobs:
             -DREXGLUE_ENABLE_TRACY=OFF \
             2>&1 | tee configure.log
 
-      - name: Build (keep going, so one run shows every error)
+      - name: Build everything (keep going, so one run shows every error)
+        run: cmake --build build -- -k 0 2>&1 | tee build.log
+
+      - name: Collect built libraries
+        if: always()
         run: |
-          TARGETS="rexruntime"
-          if [ "${{ matrix.vulkan }}" = "ON" ]; then TARGETS="rexruntime rexgpu-xenos"; fi
-          cmake --build build --target $TARGETS -- -k 0 2>&1 | tee build.log
+          mkdir -p out-libs
+          find build -name "*.a" -exec cp {} out-libs/ \; || true
+          ls -la out-libs
 
       - name: Error summary
         if: always()
@@ -89,3 +91,9 @@ jobs:
           path: |
             configure.log
             build.log
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-libs
+          path: out-libs
