@@ -47,6 +47,9 @@ jobs:
           echo "---- other AppKit refs ----"
           grep -rn "AppKit\|APPKIT" sdk/thirdparty/moltenvk --include=CMakeLists.txt --include=*.cmake || true
 
+      - name: Show install rules (debug)
+        run: sed -n 35,75p sdk/cmake/rexglue_install.cmake
+
       - name: Configure (iOS arm64)
         run: |
           cmake -S sdk -B build -G Ninja \
@@ -55,6 +58,7 @@ jobs:
             -DCMAKE_OSX_ARCHITECTURES=arm64 \
             -DCMAKE_SYSTEM_PROCESSOR=arm64 \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=16.0 \
+            -DCMAKE_MACOSX_BUNDLE=OFF \
             -DCMAKE_BUILD_TYPE=Release \
             -DREXGLUE_USE_VULKAN=${{ matrix.vulkan }} \
             -DREXGLUE_ENABLE_TRACY=OFF \
