@@ -20,7 +20,9 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Tools
-        run: brew install ninja || true
+        run: |
+          brew install ninja || true
+          mkdir -p ~/.cache/CPM
 
       - name: Fetch ReXGlue SDK (pinned to the commit the port was built against)
         run: |
@@ -35,6 +37,15 @@ jobs:
         run: |
           git -C sdk apply --whitespace=nowarn ../port-src/port/patches/rexglue-sdk-svr2011.patch
           for p in patches/*.patch; do echo "applying $p"; git -C sdk apply --whitespace=nowarn "../$p"; done
+
+      - name: Patch MoltenVK CMake for iOS (skip AppKit)
+        run: |
+          F=sdk/thirdparty/moltenvk/Common/CMakeLists.txt
+          echo "---- before ----"; sed -n 1,40p "$F"
+          perl -i -pe 's/^(\s*find_library\(APPKIT_LIBRARY.*)$/if(NOT IOS)\n$1\nendif()/' "$F"
+          echo "---- after ----"; sed -n 1,40p "$F"
+          echo "---- other AppKit refs ----"
+          grep -rn "AppKit\|APPKIT" sdk/thirdparty/moltenvk --include=CMakeLists.txt --include=*.cmake || true
 
       - name: Configure (iOS arm64)
         run: |
